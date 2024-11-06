@@ -2,7 +2,9 @@ from pathlib import Path
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
-from upcloud import get_access_token, OneDriveClient
+from config import get_access_token
+from utils import get_files_to_upload
+from onedrive_client import OneDriveClient
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -11,10 +13,11 @@ if __name__ == "__main__":
     FOLDER_PATH = Path(os.getenv('SOURCE_FOLDER'))
     CRITERIA = '*.csv'
     TARGET_LOCATION = os.getenv('TARGET_FOLDER')  # Replace with your target folder in OneDrive
-
+    RECURSIVE = os.getenv('RECURSIVE', 'False').lower() in ('true', '1', 't')
+    
     access_token = get_access_token()
     client = OneDriveClient(access_token)
-    files_to_upload = list(FOLDER_PATH.glob(CRITERIA))
+    files_to_upload = get_files_to_upload(FOLDER_PATH, CRITERIA, True)
     print("Items to upload: ", len(files_to_upload), "files")
 
     # Create necessary folders up front
