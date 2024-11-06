@@ -64,7 +64,7 @@ python  --source_folder ./local_folder --target_folder /OneDriveFolder --client_
 
 ### Key Functions  
 
-- File Existence Check:
+- File Existence Check:  
 
 	- `file_exists_on_onedrive(file_name, access_token, folder_name=None)` in `upcloud/utils.py`
 	- `file_exists(self, file_name, folder_name=None)` in `upcloud/onedrive_client.py`  
@@ -74,12 +74,12 @@ python  --source_folder ./local_folder --target_folder /OneDriveFolder --client_
 	- `folder_exists_on_onedrive(folder_name, access_token, parent_folder=None)` in `upcloud/utils.py`
 	- `folder_exists(self, folder_name, parent_folder=None)` in `upcloud/onedrive_client.py`
 
-- File Upload:
+- File Upload:  
 
 	- `upload_file(self, file_path, target_location=None, verbose=None)` in `upcloud/onedrive_client.py`
 	- `upload_file_in_chunks(self, file_path, upload_url)` in `upcloud/onedrive_client.py`
 
-- Folder Creation:
+- Folder Creation:  
 
 	- `create_folder(self, folder_name, parent_folder=None)` in `upcloud/onedrive_client.py`
 
