@@ -5,12 +5,12 @@ class OneDriveClient:
     def __init__(self, access_token):
         self.access_token = access_token
 
-    def create_folder(self, folder_name, parent_folder=None):
+    def create_folder(self, folder_name,  parent_folder=None):
         """Create a folder on OneDrive.
 
         Args:
-            folder_name (str): Name of the folder to create.
-            parent_folder (str, optional): Parent folder for the new folder. Defaults to None.
+            parent_folder (str): Parent folder for the new folder.
+            folder_path (str): Name of the folder to create.
 
         Returns:
             str: ID of the created folder.
@@ -19,7 +19,7 @@ class OneDriveClient:
             create_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{parent_folder}:/children'
         else:
             create_url = 'https://graph.microsoft.com/v1.0/me/drive/root/children'
-        
+    
         headers = {
             'Authorization': f'Bearer {self.access_token}',
             'Content-Type': 'application/json'
@@ -29,10 +29,46 @@ class OneDriveClient:
             'folder': {},
             '@microsoft.graph.conflictBehavior': 'rename'
         }
+        
         response = requests.post(create_url, headers=headers, json=data)
+        if response.status_code != 201:
+            print(create_url)
+            print(data)
+            print(f"Failed to create folder: {folder_name} in {parent_folder}")
+            print(f"Response Status Code: {response.status_code}")
+            print(f"Response Content: {response.content}")
         response.raise_for_status()
         return response.json()['id']
+    def create_folders(self, local_folder,target_folder,verbose=None):
+        """Create multiple folders on OneDrive.
+        Args:
+            local_folder (list): List of folder names to create.
+            target_folder (str, optional): Parent folder for the new folders. Defaults to None.
+        """
+        
+        # Gather all directories that need to be created
+        directories_to_create = []
+        for root, dirs, files in os.walk(local_folder):
+            if not files and not dirs:
+                continue  # Skip empty directories
 
+            relative_path = os.path.relpath(root, local_folder)
+            onedrive_path = os.path.join(target_folder, relative_path).replace("\\", "/")
+            directories_to_create.append(onedrive_path)
+
+        # Sort directories to ensure parent directories are created first
+        directories_to_create.sort()
+
+        # Create each directory incrementally
+        for onedrive_path in directories_to_create:
+            if verbose: print(f'Checking folder {onedrive_path}')
+            if not self.folder_exists(onedrive_path):
+                parent_folder = os.path.dirname(onedrive_path)
+                folder_name = os.path.basename(onedrive_path)
+                self.create_folder(folder_name,parent_folder)
+                if verbose: print(f'Created folder {onedrive_path}')
+            else:
+                if verbose: print(f'Folder {onedrive_path} already exists')
     def folder_exists(self, folder_name, parent_folder=None):
         """
         Check if a folder exists on OneDrive.
@@ -158,3 +194,4 @@ class OneDriveClient:
             upload_url = self.initiate_resumable_upload_session(file_path, target_location)
             self.upload_file_in_chunks(file_path, upload_url)
             if verbose: print(f'{file_path.name} uploaded successfully to {target_location if target_location else "root"} using resumable upload.')
+    
