@@ -1,5 +1,13 @@
 import requests
 import os
+
+def get_files_to_upload(folder_path, criteria, recursive=False):
+    if recursive:
+        return list(folder_path.rglob(criteria))
+    else:
+        return list(folder_path.glob(criteria))
+    
+    
 def create_folder_on_onedrive(folder_name, access_token, parent_folder=None):
     """Create a folder on OneDrive.
 
