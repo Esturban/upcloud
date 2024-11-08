@@ -194,4 +194,3 @@ class OneDriveClient:
             upload_url = self.initiate_resumable_upload_session(file_path, target_location)
             self.upload_file_in_chunks(file_path, upload_url)
             if verbose: print(f'{file_path.name} uploaded successfully to {target_location if target_location else "root"} using resumable upload.')
-    
