@@ -6,29 +6,18 @@ from config import get_access_token
 from utils import get_files_to_upload
 from onedrive_client import OneDriveClient
 from dotenv import load_dotenv
-import subprocess
 
 load_dotenv()
 
 def main():
     access_token = get_access_token()
-    if not access_token:
-        subprocess.Popen(['uvicorn', 'server:app', '--reload'])
-        print("Please authenticate by visiting the authorization URL.")
-        auth_url = (
-            "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?"
-            f"client_id={os.getenv('CLIENT_ID')}&response_type=code&redirect_uri={os.getenv('REDIRECT_URI')}&"
-            "scope=Files.ReadWrite.All offline_access"
-        )
-        print(f"Visit this URL to authenticate: {auth_url}")
-        return
 
     FOLDER_PATH = Path(os.getenv('SOURCE_FOLDER'))
     CRITERIA = '*.csv'
     TARGET_PATH = os.getenv('TARGET_FOLDER')
     RECURSIVE = os.getenv('RECURSIVE', 'False').lower() in ('true', '1', 't')
     VERBOSE = os.getenv('VERBOSE', 'False').lower() in ('true', '1', 't')
-
+    print("Stuff working")
     client = OneDriveClient(access_token)
     files_to_upload = get_files_to_upload(FOLDER_PATH, CRITERIA, RECURSIVE)
     if VERBOSE: print("Items to upload: ", len(files_to_upload), "files")
