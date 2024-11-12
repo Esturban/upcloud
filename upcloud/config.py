@@ -1,9 +1,6 @@
-import os
+import os, json, logging, requests
 from dotenv import load_dotenv
 from requests.auth import HTTPBasicAuth
-import requests
-import json
-import logging
 from jwt import decode, InvalidTokenError
 
 load_dotenv()
@@ -20,38 +17,44 @@ class Config:
 
 def get_access_token():
     try:
-        with open(Config.CACHED_TOKEN_PATH, 'r') as f:
-            tokens = json.load(f)
-            access_token = tokens.get('access_token')
-            auth_code = tokens.get('auth_code')
-            if access_token and is_valid_jwt(access_token):
-                return access_token
+        with open(Config.CACHED_TOKEN_PATH) as f:
+            t = json.load(f)
+            if t.get('access_token') and is_valid_jwt(t['access_token']):
+                return t['access_token']
+            elif t.get('refresh_token'):
+                return refresh_access_token(t['refresh_token'])
             else:
-                raise ValueError("Invalid access token format")
+                raise_exception()
     except (FileNotFoundError, ValueError) as e:
-        logging.error(f"Token retrieval error: {e}")
-        auth_url = (
-            f"{Config.AUTHORITY_URL}?client_id={Config.CLIENT_ID}&response_type=code&redirect_uri={Config.REDIRECT_URI}"
-            f"&response_mode=query&scope={' '.join(Config.SCOPES)}"
-        )
-        print(f"Go to the following URL to authorize the application: {auth_url}")
-        auth_code = input("Enter the authorization code: ")
-
-        token_data = {
-            'client_id': Config.CLIENT_ID,
-            'client_secret': Config.CLIENT_SECRET,
-            'grant_type': 'authorization_code',
-            'code': auth_code,
-            'redirect_uri': Config.REDIRECT_URI,
-            'scope': ' '.join(Config.SCOPES)
-        }
-        response = requests.post(Config.TOKEN_URL, data=token_data, auth=HTTPBasicAuth(Config.CLIENT_ID, Config.CLIENT_SECRET))
-        response.raise_for_status()
-        tokens = response.json()
-        tokens['auth_code'] = auth_code
+        logging.error(f"Token error: {e}")
+        auth_url = f"{Config.AUTHORITY_URL}?client_id={Config.CLIENT_ID}&response_type=code&redirect_uri={Config.REDIRECT_URI}&response_mode=query&scope={' '.join(Config.SCOPES)}"
+        print(f"Authorize: {auth_url}")
+        code = input("Code: ")
+        token = requests.post(Config.TOKEN_URL, data={
+            'client_id': Config.CLIENT_ID, 'client_secret': Config.CLIENT_SECRET,
+            'grant_type': 'authorization_code', 'code': code,
+            'redirect_uri': Config.REDIRECT_URI, 'scope': ' '.join(Config.SCOPES)
+        }, auth=HTTPBasicAuth(Config.CLIENT_ID, Config.CLIENT_SECRET)).json()
+        token['auth_code'] = code
         with open(Config.CACHED_TOKEN_PATH, 'w') as f:
-            json.dump(tokens, f)
-        return tokens['access_token']
+            json.dump(token, f)
+        return token['access_token']
+
+
+def refresh_access_token(rt):
+    token = requests.post(Config.TOKEN_URL, data={
+        'client_id': Config.CLIENT_ID, 'client_secret': Config.CLIENT_SECRET,
+        'grant_type': 'refresh_token', 'refresh_token': rt,
+        'scope': ' '.join(Config.SCOPES)
+    }, auth=HTTPBasicAuth(Config.CLIENT_ID, Config.CLIENT_SECRET)).json()
+    token['refresh_token'] = rt
+    with open(Config.CACHED_TOKEN_PATH, 'w') as f:
+        json.dump(token, f)
+    return token['access_token']
+
+
+def raise_exception():
+    raise ValueError("Invalid access token format")
 
 
 def is_valid_jwt(token):
