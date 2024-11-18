@@ -34,10 +34,13 @@ def get_access_token():
 def get_new_token():
     event = threading.Event()
     app_instance, thread = run_server(event)
-    webbrowser.open(f"{Config.AUTHORITY_URL}?client_id={Config.CLIENT_ID}&response_type=code&redirect_uri={Config.REDIRECT_URI}&response_mode=query&scope={' '.join(Config.SCOPES)}")
+    auth_url = f"{Config.AUTHORITY_URL}?client_id={Config.CLIENT_ID}&response_type=code&redirect_uri={Config.REDIRECT_URI}&response_mode=query&scope={' '.join(Config.SCOPES)}"
+    webbrowser.open(auth_url)
     event.wait()
     code = app_instance.state.auth_code
-    app_instance.state.server.should_exit = True  # Signal server to stop
+    
+    # Gracefully stop the server
+    app_instance.state.server.force_exit = True
     thread.join(timeout=1)
     
     token = requests.post(Config.TOKEN_URL, 
@@ -48,7 +51,7 @@ def get_new_token():
     
     if 'error' in token:
         raise ValueError(f"Token error: {token.get('error_description', token['error'])}")
-        
+    
     with open(Config.CACHED_TOKEN_PATH, 'w') as f:
         json.dump(token, f)
     return token['access_token']
