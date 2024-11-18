@@ -20,11 +20,26 @@ async def callback(request: Request):
 def run_server(event):
     app.state.event = event
     app.state.auth_code = None
-    config = uvicorn.Config(app, host="0.0.0.0", port=8080, log_level="error")
-    server = uvicorn.Server(config)
-    server._serve = server.run
-    thread = threading.Thread(target=server._serve)
+    
+    def run():
+        import asyncio
+        new_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(new_loop)
+        config = uvicorn.Config(app, host="0.0.0.0", port=8080, log_level="error")
+        server = uvicorn.Server(config)
+        app.state.server = server
+        
+        async def serve():
+            try:
+                await server.serve()
+            except Exception:
+                pass
+            finally:
+                server.force_exit = True
+                
+        new_loop.run_until_complete(serve())
+        
+    thread = threading.Thread(target=run)
     thread.daemon = True
     thread.start()
-    app.state.server = server  # Store server instance in app.state
     return app, thread
