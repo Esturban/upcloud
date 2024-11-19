@@ -1,6 +1,13 @@
 # Upcloud
 
-Upcloud is a Python script that uploads all files from a specified local folder to a target folder in OneDrive. It supports both simple and resumable uploads, ensuring efficient file transfer.
+Enterprise-grade OneDrive uploader optimized for large-scale file operations and parallel processing.
+
+## Core Features
+- Multi-threaded uploads (8 workers)
+- Chunked upload for files >4MB (320KB chunks)
+- Recursive directory mirroring
+- Resumable transfer support
+- Real-time progress tracking
 
 ## Requirements
 

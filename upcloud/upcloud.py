@@ -6,25 +6,24 @@ from config import get_access_token
 from utils import get_files_to_upload
 from onedrive_client import OneDriveClient
 from dotenv import load_dotenv
+
 load_dotenv()
 
 def main():
-        # Replace with the paths to the files you want to upload
+    access_token = get_access_token()
+
     FOLDER_PATH = Path(os.getenv('SOURCE_FOLDER'))
     CRITERIA = '*.csv'
-    TARGET_PATH = os.getenv('TARGET_FOLDER')  # Replace with your target folder in OneDrive
+    TARGET_PATH = os.getenv('TARGET_FOLDER')
     RECURSIVE = os.getenv('RECURSIVE', 'False').lower() in ('true', '1', 't')
     VERBOSE = os.getenv('VERBOSE', 'False').lower() in ('true', '1', 't')
-
-    access_token = get_access_token()
+    print("Stuff working")
     client = OneDriveClient(access_token)
     files_to_upload = get_files_to_upload(FOLDER_PATH, CRITERIA, RECURSIVE)
     if VERBOSE: print("Items to upload: ", len(files_to_upload), "files")
     
-    client.create_folders(FOLDER_PATH, TARGET_PATH,verbose=VERBOSE)
-    
+    client.create_folders(FOLDER_PATH, TARGET_PATH, verbose=VERBOSE)
 
-    # Upload files folder by folder
     with ThreadPoolExecutor(max_workers=8) as executor:
         futures = []
         for root, _, files in os.walk(FOLDER_PATH):
@@ -42,7 +41,6 @@ def main():
 
                     futures.append(executor.submit(check_and_upload, file_path, target_folder))
 
-                # Wait for the current folder to complete
                 for future in as_completed(futures):
                     future.result()
                 futures.clear()
