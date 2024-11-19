@@ -4,6 +4,16 @@ import os
 class OneDriveClient:
     def __init__(self, access_token):
         self.access_token = access_token
+
+    def _get_headers(self, content_type='application/json'):
+        return {'Authorization': f'Bearer {self.access_token}', 'Content-Type': content_type}
+
+    def _make_request(self, method, url, headers=None, **kwargs):
+        headers = headers or self._get_headers()
+        response = requests.request(method, url, headers=headers, **kwargs)
+        response.raise_for_status()
+        return response
+
     def create_folder(self, folder_name,  parent_folder=None):
         """Create a folder on OneDrive.
 
@@ -14,22 +24,9 @@ class OneDriveClient:
         Returns:
             str: ID of the created folder.
         """
-        if parent_folder:
-            create_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{parent_folder}:/children'
-        else:
-            create_url = 'https://graph.microsoft.com/v1.0/me/drive/root/children'
-    
-        headers = {
-            'Authorization': f'Bearer {self.access_token}',
-            'Content-Type': 'application/json'
-        }
-        data = {
-            'name': folder_name,
-            'folder': {},
-            '@microsoft.graph.conflictBehavior': 'rename'
-        }
-        
-        response = requests.post(create_url, headers=headers, json=data)
+        create_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{parent_folder}:/children' if parent_folder else 'https://graph.microsoft.com/v1.0/me/drive/root/children'
+        data = {'name': folder_name, 'folder': {}, '@microsoft.graph.conflictBehavior': 'rename'}
+        response=self._make_request('POST', create_url, json=data)
         if response.status_code != 201:
             print(create_url)
             print(data)
@@ -38,33 +35,19 @@ class OneDriveClient:
             print(f"Response Content: {response.content}")
         response.raise_for_status()
         return response.json()['id']
+        
     def create_folders(self, local_folder,target_folder,verbose=None):
         """Create multiple folders on OneDrive.
         Args:
             local_folder (list): List of folder names to create.
             target_folder (str, optional): Parent folder for the new folders. Defaults to None.
         """
-        
-        # Gather all directories that need to be created
-        directories_to_create = []
-        for root, dirs, files in os.walk(local_folder):
-            if not files and not dirs:
-                continue  # Skip empty directories
-
-            relative_path = os.path.relpath(root, local_folder)
-            onedrive_path = os.path.join(target_folder, relative_path).replace("\\", "/")
-            directories_to_create.append(onedrive_path)
-
-        # Sort directories to ensure parent directories are created first
-        directories_to_create.sort()
-
-        # Create each directory incrementally
-        for onedrive_path in directories_to_create:
+        # Get all directories in the local folder that need to be created in the target folder
+        directories_to_create = [os.path.join(target_folder, os.path.relpath(root, local_folder)).replace("\\", "/") for root, dirs, files in os.walk(local_folder) if files or dirs]
+        for onedrive_path in sorted(directories_to_create):
             if verbose: print(f'Checking folder {onedrive_path}')
             if not self.folder_exists(onedrive_path):
-                parent_folder = os.path.dirname(onedrive_path)
-                folder_name = os.path.basename(onedrive_path)
-                self.create_folder(folder_name,parent_folder)
+                self.create_folder(os.path.basename(onedrive_path), os.path.dirname(onedrive_path))
                 if verbose: print(f'Created folder {onedrive_path}')
             else:
                 if verbose: print(f'Folder {onedrive_path} already exists')
@@ -194,67 +177,40 @@ class OneDriveClient:
             self.upload_file_in_chunks(file_path, upload_url)
             if verbose: print(f'{file_path.name} uploaded successfully to {target_location if target_location else "root"} using resumable upload.')
 
-    def download_file(self, file_path=None, target_location=None, item_id=None, drive_id=None, site_id=None, 
-                     group_id=None, share_id=None, user_id=None, verbose=None):
-        """Download a file from OneDrive using various access paths.
-        
-        Args:
-            file_path (str, optional): Path-based file access
-            target_location (str): Local save path
-            item_id (str, optional): Direct item ID access
-            drive_id (str, optional): Specific drive access
-            site_id (str, optional): SharePoint site access
-            group_id (str, optional): Group drive access
-            share_id (str, optional): Shared item access
-            user_id (str, optional): User's drive access
-            verbose (bool, optional): Enable logging
+    def download_file(self, file_path, target_location, verbose=None):
         """
-        base_url = "https://graph.microsoft.com/v1.0"
-        if file_path: url = f"{base_url}/me/drive/root:/{file_path}:/contentStream"
-        elif item_id and drive_id: url = f"{base_url}/drives/{drive_id}/items/{item_id}/contentStream"
-        elif item_id and group_id: url = f"{base_url}/groups/{group_id}/drive/items/{item_id}/contentStream"
-        elif item_id: url = f"{base_url}/me/drive/items/{item_id}/contentStream"
-        elif share_id: url = f"{base_url}/shares/{share_id}/driveItem/contentStream"
-        elif item_id and site_id: url = f"{base_url}/sites/{site_id}/drive/items/{item_id}/contentStream"
-        elif item_id and user_id: url = f"{base_url}/users/{user_id}/drive/items/{item_id}/contentStream"
-        else: raise ValueError("Invalid combination of parameters for file access")
+        Download a file from OneDrive.
 
-        response = requests.get(url, headers={'Authorization': f'Bearer {self.access_token}'}, stream=True)
+        Args:
+            file_path (str): Path to the file in OneDrive.
+            target_location (str): Local path to save the file.
+            verbose (bool, optional): Whether to print verbose output.
+        """
+        download_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{file_path}:/content'
+        headers = {'Authorization': f'Bearer {self.access_token}'}
+        
+        response = requests.get(download_url, headers=headers, stream=True)
         response.raise_for_status()
         
         file_size = int(response.headers.get('content-length', 0))
-        return self._handle_download(response, target_location, file_size, verbose)
-
-    def _handle_download(self, response, target_location, file_size, verbose):
-        """Internal download handler"""
-        return (self.download_file_in_chunks(response, target_location, file_size, verbose) 
-                if file_size > 4194304 else self._direct_download(response, target_location, verbose))
-
-    def _direct_download(self, response, target_location, verbose):
-        """Handle small file download"""
-        with open(target_location, 'wb') as f: f.write(response.content)
-        if verbose: print(f'Downloaded to {target_location}')
-        return len(response.content), len(response.content)
-
+        
+        if file_size <= 4 * 1024 * 1024:  # 4MB
+            with open(target_location, 'wb') as f:
+                f.write(response.content)
+            if verbose: print(f'{file_path} downloaded successfully to {target_location}')
+        else:
+            self.download_file_in_chunks(response, target_location, file_size, verbose)
+    
     def download_file_in_chunks(self, response, target_location, file_size, verbose=None):
-        """Download a large file in chunks with progress tracking.
-
-        Args:
-            response (requests.Response): Streaming response from OneDrive
-            target_location (str): Local path to save the downloaded file
-            file_size (int): Total size of file in bytes for progress calculation
-            verbose (bool, optional): Enable progress reporting and logging
-
-        Returns:
-            tuple: (bytes_downloaded, file_size) indicating transfer completion
-        """
-        chunk_size, bytes_downloaded = 327680, 0
+        chunk_size = 327680  # 320KB
+        bytes_downloaded = 0
         with open(target_location, 'wb') as f:
-            for chunk in response.iter_content(chunk_size):
-                if not chunk: continue
-                bytes_downloaded += len(chunk)
-                f.write(chunk)
-                if verbose and file_size:
-                    print(f'\rProgress: {(bytes_downloaded/file_size)*100:.1f}%', end='', flush=True)
-        if verbose: print(f'\nDownloaded {bytes_downloaded}/{file_size} bytes to {target_location}')
-        return bytes_downloaded, file_size
+            for chunk in response.iter_content(chunk_size=chunk_size):
+                if chunk:
+                    bytes_downloaded += len(chunk)
+                    f.write(chunk)
+                    if verbose and file_size > 0:
+                        progress = (bytes_downloaded / file_size) * 100
+                        print(f'\rProgress: {progress:.1f}%', end='', flush=True)
+        if verbose: 
+            print(f'\nLarge file ({bytes_downloaded}/{file_size} bytes) downloaded to {target_location}')
