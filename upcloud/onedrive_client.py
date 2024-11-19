@@ -194,3 +194,44 @@ class OneDriveClient:
             upload_url = self.initiate_resumable_upload_session(file_path, target_location)
             self.upload_file_in_chunks(file_path, upload_url)
             if verbose: print(f'{file_path.name} uploaded successfully to {target_location if target_location else "root"} using resumable upload.')
+
+    def download_file(self, file_path, target_location, verbose=None):
+        """
+        Download a file from OneDrive.
+
+        Args:
+            file_path (str): Path to the file in OneDrive.
+            target_location (str): Local path to save the file.
+            verbose (bool, optional): Whether to print verbose output.
+        """
+        download_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{file_path}:/content'
+        headers = {'Authorization': f'Bearer {self.access_token}'}
+        
+        response = requests.get(download_url, headers=headers, stream=True)
+        response.raise_for_status()
+        
+        file_size = int(response.headers.get('content-length', 0))
+        
+        if file_size <= 4 * 1024 * 1024:  # 4MB
+            with open(target_location, 'wb') as f:
+                f.write(response.content)
+            if verbose: print(f'{file_path} downloaded successfully to {target_location}')
+        else:
+            self.download_file_in_chunks(response, target_location, file_size, verbose)
+    
+    def download_file_in_chunks(self, response, target_location, file_size, verbose=None):
+        """
+        Download a large file in chunks.
+
+        Args:
+            response (Response): Response object from initial request
+            target_location (str): Local path to save the file
+            file_size (int): Size of the file in bytes
+            verbose (bool, optional): Whether to print verbose output
+        """
+        chunk_size = 327680  # 320KB
+        with open(target_location, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=chunk_size):
+                if chunk:
+                    f.write(chunk)
+        if verbose: print(f'Large file downloaded successfully to {target_location} using chunked download.')
