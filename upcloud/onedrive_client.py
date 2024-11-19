@@ -62,16 +62,8 @@ class OneDriveClient:
         Returns:
             bool: True if the folder exists, False otherwise.
         """
-        if parent_folder:
-            check_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{parent_folder}/{folder_name}'
-        else:
-            check_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{folder_name}'
-        
-        headers = {
-            'Authorization': f'Bearer {self.access_token}'
-        }
-        response = requests.get(check_url, headers=headers)
-        return response.status_code == 200
+        check_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{parent_folder}/{folder_name}' if parent_folder else f'https://graph.microsoft.com/v1.0/me/drive/root:/{folder_name}'
+        return self._make_request('GET', check_url).status_code == 200
 
     def file_exists(self, file_name, folder_name=None):
         """
@@ -84,16 +76,8 @@ class OneDriveClient:
         Returns:
             bool: True if the file exists, False otherwise.
         """
-        if folder_name:
-            check_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{folder_name}/{file_name}'
-        else:
-            check_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{file_name}'
-        
-        headers = {
-            'Authorization': f'Bearer {self.access_token}'
-        }
-        response = requests.get(check_url, headers=headers)
-        return response.status_code == 200
+        check_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{folder_name}/{file_name}' if folder_name else f'https://graph.microsoft.com/v1.0/me/drive/root:/{file_name}'
+        return self._make_request('GET', check_url).status_code == 200
 
     def initiate_resumable_upload_session(self, file_path, target_location=None):
         """
@@ -106,24 +90,9 @@ class OneDriveClient:
         Returns:
             str: Upload URL for the file.
         """
-        if target_location:
-            upload_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{target_location}/{file_path.name}:/createUploadSession'
-        else:
-            upload_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{file_path.name}:/createUploadSession'
-        
-        headers = {
-            'Authorization': f'Bearer {self.access_token}',
-            'Content-Type': 'application/json'
-        }
-        data = {
-            'item': {
-                '@microsoft.graph.conflictBehavior': 'rename',
-                'name': file_path.name
-            }
-        }
-        response = requests.post(upload_url, headers=headers, json=data)
-        response.raise_for_status()
-        return response.json()['uploadUrl']
+        upload_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{target_location}/{file_path.name}:/createUploadSession' if target_location else f'https://graph.microsoft.com/v1.0/me/drive/root:/{file_path.name}:/createUploadSession'
+        data = {'item': {'@microsoft.graph.conflictBehavior': 'rename', 'name': file_path.name}}
+        return self._make_request('POST', upload_url, json=data).json()['uploadUrl']
 
     def upload_file_in_chunks(self, file_path, upload_url):
         """
@@ -133,18 +102,15 @@ class OneDriveClient:
             file_path (str): Path to the file to upload.
             upload_url (str): Upload URL for the file
         """
-        chunk_size = 327680  # 320KB
-        file_size = os.path.getsize(file_path)
+        chunk_size, file_size = 327680, os.path.getsize(file_path)
         with open(file_path, 'rb') as file:
             for chunk_start in range(0, file_size, chunk_size):
                 chunk_end = min(chunk_start + chunk_size, file_size) - 1
                 file.seek(chunk_start)
                 chunk_data = file.read(chunk_end - chunk_start + 1)
-                headers = {
-                    'Content-Range': f'bytes {chunk_start}-{chunk_end}/{file_size}'
-                }
-                response = requests.put(upload_url, headers=headers, data=chunk_data)
-                response.raise_for_status()
+                headers = self._get_headers()
+                headers['Content-Range'] = f'bytes {chunk_start}-{chunk_end}/{file_size}'
+                self._make_request('PUT', upload_url, headers=headers, data=chunk_data)
 
     def upload_file(self, file_path, target_location=None, verbose=None):
         """
@@ -156,61 +122,64 @@ class OneDriveClient:
             verbose (bool, optional): Whether to print verbose output. Defaults to None.
         """
         file_size = os.path.getsize(file_path)
-        if file_size <= 4 * 1024 * 1024:  # 4MB 
-            if target_location:
-                upload_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{target_location}/{file_path.name}:/content'
-            else:
-                upload_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{file_path.name}:/content'
-            
-            headers = {
-                'Authorization': f'Bearer {self.access_token}',
-                'Content-Type': 'application/octet-stream'
-            }
+        if file_size <= 4 * 1024 * 1024:
+            upload_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{target_location}/{file_path.name}:/content' if target_location else f'https://graph.microsoft.com/v1.0/me/drive/root:/{file_path.name}:/content'
             with open(file_path, 'rb') as file:
-                response = requests.put(upload_url, headers=headers, data=file)
-            if response.status_code == 201:
-                if verbose: print(f'{file_path.name} uploaded successfully to {target_location if target_location else "root"}.')
-            else:
-                print(f'Failed to upload {file_path.name}. Status code: {response.status_code}, Response: {response.text}')
+                response = self._make_request('PUT', upload_url, headers=self._get_headers('application/octet-stream'), data=file)
+            if verbose: print(f'{file_path.name} uploaded successfully to {target_location if target_location else "root"}.' if response.status_code == 201 else f'Failed to upload {file_path.name}. Status code: {response.status_code}, Response: {response.text}')
         else:
             upload_url = self.initiate_resumable_upload_session(file_path, target_location)
             self.upload_file_in_chunks(file_path, upload_url)
             if verbose: print(f'{file_path.name} uploaded successfully to {target_location if target_location else "root"} using resumable upload.')
 
-    def download_file(self, file_path, target_location, verbose=None):
-        """
-        Download a file from OneDrive.
+    def download_file(self, file_path=None, target_location=None, item_id=None, drive_id=None, site_id=None, group_id=None, share_id=None, user_id=None, verbose=None):
+        """ Download a file from OneDrive.
 
         Args:
-            file_path (str): Path to the file in OneDrive.
-            target_location (str): Local path to save the file.
-            verbose (bool, optional): Whether to print verbose output.
+            file_path (str, optional): Path to the file to download. Defaults to None.
+            target_location (str, optional): Target folder for the file. Defaults to None.
+            item_id (str, optional): Item ID for one drive. Defaults to None.
+            drive_id (str, optional): Drive ID. Defaults to None.
+            site_id (str, optional): Site ID. Defaults to None.
+            group_id (str, optional): Group ID. Defaults to None.
+            share_id (str, optional): Share ID. Defaults to None.
+            user_id (str, optional): User ID. Defaults to None.
+            verbose (str, optional): Whether to print verbose output. Defaults to None.
+
+        Raises:
+            ValueError: Invalid combination of parameters for file access
+
+        Returns:
+        Tuple[int, int]: Number of bytes downloaded and total file size.
         """
-        download_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{file_path}:/content'
-        headers = {'Authorization': f'Bearer {self.access_token}'}
-        
-        response = requests.get(download_url, headers=headers, stream=True)
-        response.raise_for_status()
-        
+        base_url = "https://graph.microsoft.com/v1.0"
+        if file_path: url = f"{base_url}/me/drive/root:/{file_path}:/contentStream"
+        elif item_id and drive_id: url = f"{base_url}/drives/{drive_id}/items/{item_id}/contentStream"
+        elif item_id and group_id: url = f"{base_url}/groups/{group_id}/drive/items/{item_id}/contentStream"
+        elif item_id: url = f"{base_url}/me/drive/items/{item_id}/contentStream"
+        elif share_id: url = f"{base_url}/shares/{share_id}/driveItem/contentStream"
+        elif item_id and site_id: url = f"{base_url}/sites/{site_id}/drive/items/{item_id}/contentStream"
+        elif item_id and user_id: url = f"{base_url}/users/{user_id}/drive/items/{item_id}/contentStream"
+        else: raise ValueError("Invalid combination of parameters for file access")
+        response = self._make_request('GET', url, headers=self._get_headers('application/octet-stream'), stream=True)
         file_size = int(response.headers.get('content-length', 0))
-        
-        if file_size <= 4 * 1024 * 1024:  # 4MB
-            with open(target_location, 'wb') as f:
-                f.write(response.content)
-            if verbose: print(f'{file_path} downloaded successfully to {target_location}')
-        else:
-            self.download_file_in_chunks(response, target_location, file_size, verbose)
+        return self._handle_download(response, target_location, file_size, verbose)
     
+    def _handle_download(self, response, target_location, file_size, verbose):
+        return self.download_file_in_chunks(response, target_location, file_size, verbose) if file_size > 4194304 else self._direct_download(response, target_location, verbose)
+
+    def _direct_download(self, response, target_location, verbose):
+        with open(target_location, 'wb') as f: f.write(response.content)
+        if verbose: print(f'Downloaded to {target_location}')
+        return len(response.content), len(response.content)
+
     def download_file_in_chunks(self, response, target_location, file_size, verbose=None):
-        chunk_size = 327680  # 320KB
-        bytes_downloaded = 0
+        chunk_size, bytes_downloaded = 327680, 0
         with open(target_location, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=chunk_size):
-                if chunk:
-                    bytes_downloaded += len(chunk)
-                    f.write(chunk)
-                    if verbose and file_size > 0:
-                        progress = (bytes_downloaded / file_size) * 100
-                        print(f'\rProgress: {progress:.1f}%', end='', flush=True)
-        if verbose: 
-            print(f'\nLarge file ({bytes_downloaded}/{file_size} bytes) downloaded to {target_location}')
+            for chunk in response.iter_content(chunk_size):
+                if not chunk: continue
+                bytes_downloaded += len(chunk)
+                f.write(chunk)
+                if verbose and file_size: print(f'\rProgress: {(bytes_downloaded/file_size)*100:.1f}%', end='', flush=True)
+        if verbose: print(f'\nDownloaded {bytes_downloaded}/{file_size} bytes to {target_location}')
+        return bytes_downloaded, file_size
