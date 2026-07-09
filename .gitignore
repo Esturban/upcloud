@@ -4,3 +4,7 @@ __pycache__
 .DS_Store
 archive/
 *.json
+# AI-IDE scaffolding (not used in this project)
+.github/copilot-instructions.md
+*.code-workspace
+.codegraph/
