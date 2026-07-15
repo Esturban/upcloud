@@ -8,3 +8,15 @@ archive/
 .github/copilot-instructions.md
 *.code-workspace
 .codegraph/
+
+# AI scaffolding / IDE (never public)
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+.wolf/
+.cursorrules
+.clinerules
+.windsurfrules
+.roo*
+memory-bank/
+.github/copilot-instructions.md
