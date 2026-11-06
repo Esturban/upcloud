@@ -43,7 +43,7 @@ class OneDriveClient:
             target_folder (str, optional): Parent folder for the new folders. Defaults to None.
         """
         # Get all directories in the local folder that need to be created in the target folder
-        directories_to_create = [os.path.join(target_folder, os.path.relpath(root, local_folder)).replace("\\", "/") for root, dirs, files in os.walk(local_folder) if files or dirs]
+        directories_to_create = [os.path.normpath(os.path.join(target_folder, os.path.relpath(root, local_folder))).replace("\\", "/") for root, dirs, files in os.walk(local_folder) if files or dirs]
         for onedrive_path in sorted(directories_to_create):
             if verbose: print(f'Checking folder {onedrive_path}')
             if not self.folder_exists(onedrive_path):
@@ -51,33 +51,25 @@ class OneDriveClient:
                 if verbose: print(f'Created folder {onedrive_path}')
             else:
                 if verbose: print(f'Folder {onedrive_path} already exists')
+    def get_item(self, path):
+        """Return the driveItem at path, or None if it does not exist (404)."""
+        path = str(path or '').strip('/')
+        url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{path}' if path else 'https://graph.microsoft.com/v1.0/me/drive/root'
+        response = requests.get(url, headers=self._get_headers())
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        return response.json()
+
     def folder_exists(self, folder_name, parent_folder=None):
-        """
-        Check if a folder exists on OneDrive.
-
-        Args:
-            folder_name (str): Name of the folder to check.
-            parent_folder (str, optional): Parent folder for the new folder. Defaults to None.
-
-        Returns:
-            bool: True if the folder exists, False otherwise.
-        """
-        check_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{parent_folder}/{folder_name}' if parent_folder else f'https://graph.microsoft.com/v1.0/me/drive/root:/{folder_name}'
-        return self._make_request('GET', check_url).status_code == 200
+        """True if the folder exists on OneDrive (False on 404 instead of raising)."""
+        item = self.get_item(f'{parent_folder}/{folder_name}' if parent_folder else folder_name)
+        return bool(item and 'folder' in item)
 
     def file_exists(self, file_name, folder_name=None):
-        """
-        Check if a file exists on OneDrive.
-
-        Args:
-            file_name (str): Name of the file to check.
-            folder_name (str, optional): Parent folder of the file. Defaults to None.
-
-        Returns:
-            bool: True if the file exists, False otherwise.
-        """
-        check_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{folder_name}/{file_name}' if folder_name else f'https://graph.microsoft.com/v1.0/me/drive/root:/{file_name}'
-        return self._make_request('GET', check_url).status_code == 200
+        """True if the file exists on OneDrive (False on 404 instead of raising)."""
+        item = self.get_item(f'{folder_name}/{file_name}' if folder_name else file_name)
+        return bool(item and 'file' in item)
 
     def initiate_resumable_upload_session(self, file_path, target_location=None):
         """
