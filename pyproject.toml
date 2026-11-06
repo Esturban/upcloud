@@ -1,2 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "upcloud"
+version = "0.2.0"
+description = "Sign in, list and mirror a personal OneDrive from the terminal"
+requires-python = ">=3.9"
+dependencies = ["requests", "python-dotenv", "PyJWT", "tqdm", "fastapi", "uvicorn"]
+
+[project.scripts]
+upcloud = "upcloud.cli:run"
+
+[tool.setuptools]
+packages = ["upcloud"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -5,17 +5,19 @@ plus obtained_at, and is written with mode 0600. Secrets never reach stdout.
 """
 import json
 import os
+import secrets
 import tempfile
 import threading
 import time
 import webbrowser
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import requests
 from jwt import InvalidTokenError, decode
 
 DEFAULT_SCOPES = "https://graph.microsoft.com/.default offline_access"
 REFRESH_MARGIN_SECONDS = 300
+LOGIN_TIMEOUT_SECONDS = 300
 HTTP_TIMEOUT_SECONDS = 30
 ENV_DIR = None  # directory of the loaded .env; relative cache paths resolve against it
 
@@ -169,19 +171,32 @@ def get_access_token(interactive=True):
 
 # ---- interactive sign-in -------------------------------------------------------
 
-def get_new_token():
-    from .server import run_server  # fastapi/uvicorn load only for sign-in
-
-    event = threading.Event()
-    app_instance, thread = run_server(event)
+def build_authorize_url(state: str) -> str:
     query = urlencode({"client_id": Config.CLIENT_ID, "response_type": "code",
                        "redirect_uri": Config.REDIRECT_URI, "response_mode": "query",
-                       "scope": " ".join(Config.SCOPES)})
-    webbrowser.open(f"{Config.AUTHORITY_URL}?{query}")
-    event.wait()
-    code = app_instance.state.auth_code
+                       "scope": " ".join(Config.SCOPES), "state": state})
+    return f"{Config.AUTHORITY_URL}?{query}"
+
+
+def get_new_token():
+    if not Config.CLIENT_ID:
+        raise AuthRequired("CLIENT_ID is not set (put it in .env).")
+    from .server import run_server  # fastapi/uvicorn load only for sign-in
+
+    port = urlparse(Config.REDIRECT_URI).port or 8080
+    event = threading.Event()
+    state = secrets.token_urlsafe(16)
+    app_instance, thread = run_server(event, port=port)
+    url = build_authorize_url(state)
+    print(f"Opening the Microsoft sign-in page. If it does not open, visit:\n  {url}")
+    webbrowser.open(url)
+    got_code = event.wait(LOGIN_TIMEOUT_SECONDS)
     app_instance.state.server.force_exit = True
     thread.join(timeout=1)
-    token = _token_request({"grant_type": "authorization_code", "code": code,
+    if not got_code or not app_instance.state.auth_code:
+        raise AuthRequired("Sign-in timed out or was cancelled.")
+    if app_instance.state.auth_state != state:
+        raise AuthRequired("Sign-in response did not match this request (state mismatch).")
+    token = _token_request({"grant_type": "authorization_code", "code": app_instance.state.auth_code,
                             "redirect_uri": Config.REDIRECT_URI})
     return save_token(token)["access_token"]
