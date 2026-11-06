@@ -12,6 +12,28 @@ venv/bin/pip install -e .        # adds the `upcloud` command to venv/bin
 
 `python -m upcloud` works too, with no install step.
 
+## Azure app registration (once)
+
+upcloud signs in through your own Azure app. Do this once, then only renew the secret.
+
+1. Open https://portal.azure.com, then **Microsoft Entra ID > App registrations > New registration**.
+2. Supported account types: **Personal Microsoft accounts only** (the `consumers` endpoints).
+3. Redirect URI: platform **Web**, value `http://localhost:8080`.
+4. **API permissions > Add > Microsoft Graph > Delegated**: `Files.ReadWrite`, `offline_access`.
+5. Copy the **Application (client) ID** into `CLIENT_ID=` in `.env`.
+
+### Client secret (new, or expired)
+
+`AADSTS7000222` on `upcloud login` means the secret expired.
+
+1. Open the app's Credentials page:
+   `https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Credentials/appId/<CLIENT_ID>`
+   (wrong directory? top right, **Switch directory**).
+2. **Client secrets > New client secret**, expiry 24 months, **Add**.
+3. Copy the **Value** column at once (it shows only once; not the Secret ID).
+4. Paste it into `AZURE_VALUE=` in `.env`. Never in chat, a commit or a log.
+5. Run `upcloud login && upcloud ls`. Delete the expired secret in the portal.
+
 ## Configure
 
 Put these keys in a `.env` file at the repo root. Never commit it.
