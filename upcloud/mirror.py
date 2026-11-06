@@ -2,6 +2,7 @@
 # REUSE_CHECKED: none in _dev repos (mirror hits are calendar/ISPC); rclone not installed; ticket targets upcloud
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+import re
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
@@ -70,6 +71,11 @@ def _remote_is_newer(path, item):
     return remote > path.stat().st_mtime + 2  # 2 s for filesystem rounding
 
 
+def _redact(message):
+    """Drop query strings: Graph upload URLs carry a tempauth token."""
+    return re.sub(r"\?\S*", "?<redacted>", message)
+
+
 def _compare(path, item, size):
     """Skip on equal size; if OneDrive has a quickXorHash, it must match too.
     A differing file whose OneDrive copy is newer is never overwritten."""
@@ -80,7 +86,7 @@ def _compare(path, item, size):
         kind, reason = "upload", "changed content"
     else:
         return "skip", "same size and hash" if remote_hash else "same size"
-    if _remote_is_newer(path, item):
+    if _remote_is_newer(path, item) and item.get("size"):  # a 0-byte copy is a failed upload
         return "newer", "OneDrive copy is newer, left alone"
     return kind, reason
 
@@ -129,7 +135,7 @@ def apply_plan(client, dst, actions, workers=WORKERS, report=None):
                 result.uploaded.append(rel)
                 report("uploaded", rel)
             except Exception as exc:  # reported per file; the run continues
-                result.failed.append((rel, str(exc)))
-                report("failed", rel, str(exc))
+                result.failed.append((rel, _redact(str(exc))))
+                report("failed", rel, _redact(str(exc)))
     result.uploaded.sort()
     return result

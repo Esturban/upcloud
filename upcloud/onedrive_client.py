@@ -1,6 +1,12 @@
 import requests
 from urllib.parse import quote
 import os
+from datetime import datetime, timezone
+
+
+def _item_path(folder, name):
+    """URL-quoted OneDrive path; names may hold &, #, % or spaces."""
+    return quote(f"{folder.strip('/')}/{name}" if folder else name, safe='/')
 
 class OneDriveClient:
     def __init__(self, access_token):
@@ -103,8 +109,11 @@ class OneDriveClient:
         Returns:
             str: Upload URL for the file.
         """
-        upload_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{target_location}/{file_path.name}:/createUploadSession' if target_location else f'https://graph.microsoft.com/v1.0/me/drive/root:/{file_path.name}:/createUploadSession'
-        data = {'item': {'@microsoft.graph.conflictBehavior': 'rename', 'name': file_path.name}}
+        upload_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{_item_path(target_location, file_path.name)}:/createUploadSession'
+        # replace: mirror already decided this file must be (re)written; keep the local mtime
+        mtime = datetime.fromtimestamp(os.path.getmtime(file_path), timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        data = {'item': {'@microsoft.graph.conflictBehavior': 'replace', 'name': file_path.name,
+                         'fileSystemInfo': {'lastModifiedDateTime': mtime}}}
         return self._make_request('POST', upload_url, json=data).json()['uploadUrl']
 
     def upload_file_in_chunks(self, file_path, upload_url):
@@ -115,14 +124,14 @@ class OneDriveClient:
             file_path (str): Path to the file to upload.
             upload_url (str): Upload URL for the file
         """
-        chunk_size, file_size = 327680, os.path.getsize(file_path)
+        chunk_size, file_size = 32 * 327680, os.path.getsize(file_path)  # 10 MiB, a 320 KiB multiple
         with open(file_path, 'rb') as file:
             for chunk_start in range(0, file_size, chunk_size):
                 chunk_end = min(chunk_start + chunk_size, file_size) - 1
                 file.seek(chunk_start)
                 chunk_data = file.read(chunk_end - chunk_start + 1)
-                headers = self._get_headers()
-                headers['Content-Range'] = f'bytes {chunk_start}-{chunk_end}/{file_size}'
+                # the upload URL is pre-authenticated; a Bearer header makes Graph answer 401
+                headers = {'Content-Range': f'bytes {chunk_start}-{chunk_end}/{file_size}'}
                 self._make_request('PUT', upload_url, headers=headers, data=chunk_data)
 
     def upload_file(self, file_path, target_location=None, verbose=None):
@@ -136,7 +145,7 @@ class OneDriveClient:
         """
         file_size = os.path.getsize(file_path)
         if file_size <= 4 * 1024 * 1024:
-            upload_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{target_location}/{file_path.name}:/content' if target_location else f'https://graph.microsoft.com/v1.0/me/drive/root:/{file_path.name}:/content'
+            upload_url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{_item_path(target_location, file_path.name)}:/content'
             with open(file_path, 'rb') as file:
                 response = self._make_request('PUT', upload_url, headers=self._get_headers('application/octet-stream'), data=file)
             if verbose: print(f'{file_path.name} uploaded successfully to {target_location if target_location else "root"}.' if response.status_code == 201 else f'Failed to upload {file_path.name}. Status code: {response.status_code}, Response: {response.text}')
