@@ -61,6 +61,18 @@ class OneDriveClient:
         response.raise_for_status()
         return response.json()
 
+    def list_children(self, path=None):
+        """All children of a OneDrive folder, following @odata.nextLink pages."""
+        path = str(path or '').strip('/')
+        url = (f'https://graph.microsoft.com/v1.0/me/drive/root:/{path}:/children' if path
+               else 'https://graph.microsoft.com/v1.0/me/drive/root/children') + '?$top=200'
+        items = []
+        while url:
+            body = self._make_request('GET', url).json()
+            items.extend(body.get('value', []))
+            url = body.get('@odata.nextLink')
+        return items
+
     def folder_exists(self, folder_name, parent_folder=None):
         """True if the folder exists on OneDrive (False on 404 instead of raising)."""
         item = self.get_item(f'{parent_folder}/{folder_name}' if parent_folder else folder_name)
