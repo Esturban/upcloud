@@ -61,12 +61,13 @@ def cmd_mirror(args):
     recursive = os.getenv("RECURSIVE", "true").strip().lower() in ("1", "true", "t", "yes")
     client = make_client()
     actions = plan_mirror(client, src, dst, recursive)
-    counts = {k: sum(a.kind == k for a in actions) for k in ("upload", "skip", "extra")}
+    counts = {k: sum(a.kind == k for a in actions) for k in ("upload", "skip", "extra", "newer")}
     for a in actions:
         if a.kind != "skip":
             print(f"{a.kind:<8} {a.rel}  ({a.reason}, {human(a.size)})")
     summary = f"{src} -> OneDrive:{dst or '/'}: {counts['upload']} to upload, " \
-              f"{counts['skip']} unchanged, {counts['extra']} only on OneDrive."
+              f"{counts['skip']} unchanged, {counts['extra']} only on OneDrive, " \
+              f"{counts['newer']} newer on OneDrive (left alone)."
     if not args.apply:
         print(f"{summary}\nDry run: nothing changed. Add --apply to upload.")
         return EXIT_OK

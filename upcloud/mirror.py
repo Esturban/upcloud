@@ -2,16 +2,18 @@
 # REUSE_CHECKED: none in _dev repos (mirror hits are calendar/ISPC); rclone not installed; ticket targets upcloud
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 from .quickxor import quickxor_file
 
 WORKERS = 8
+JUNK = {".ds_store", "thumbs.db", "desktop.ini"}
 
 
 @dataclass(frozen=True)
 class Action:
-    kind: str            # upload | skip | extra
+    kind: str            # upload | skip | extra | newer
     rel: str             # posix path relative to SRC / DST
     reason: str
     size: int = 0
@@ -36,7 +38,8 @@ def scan_local(src, recursive=True):
     if not src.is_dir():
         raise FileNotFoundError(f"local folder not found: {src}")
     found = src.rglob("*") if recursive else src.glob("*")
-    return {p.relative_to(src).as_posix(): p for p in sorted(found) if p.is_file()}
+    return {p.relative_to(src).as_posix(): p for p in sorted(found)
+            if p.is_file() and p.name.lower() not in JUNK and not p.name.startswith("._")}
 
 
 def remote_files(client, dst, recursive=True):
@@ -55,14 +58,29 @@ def remote_files(client, dst, recursive=True):
     return files
 
 
+def _remote_is_newer(path, item):
+    # fileSystemInfo only: the top-level stamp is upload time, always "newer".
+    stamp = item.get("fileSystemInfo", {}).get("lastModifiedDateTime")
+    try:
+        remote = datetime.fromisoformat(stamp.rstrip("Z").split(".")[0] + "+00:00").timestamp()
+    except (AttributeError, ValueError):
+        return False
+    return remote > path.stat().st_mtime + 2  # 2 s for filesystem rounding
+
+
 def _compare(path, item, size):
-    """Skip on equal size; if OneDrive has a quickXorHash, it must match too."""
-    if item.get("size") != size:
-        return "upload", "changed size"
+    """Skip on equal size; if OneDrive has a quickXorHash, it must match too.
+    A differing file whose OneDrive copy is newer is never overwritten."""
     remote_hash = item.get("file", {}).get("hashes", {}).get("quickXorHash")
-    if remote_hash and quickxor_file(path) != remote_hash:
-        return "upload", "changed content"
-    return "skip", "same size and hash" if remote_hash else "same size"
+    if item.get("size") != size:
+        kind, reason = "upload", "changed size"
+    elif remote_hash and quickxor_file(path) != remote_hash:
+        kind, reason = "upload", "changed content"
+    else:
+        return "skip", "same size and hash" if remote_hash else "same size"
+    if _remote_is_newer(path, item):
+        return "newer", "OneDrive copy is newer, left alone"
+    return kind, reason
 
 
 def plan_mirror(client, src, dst, recursive=True):

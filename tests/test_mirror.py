@@ -1,3 +1,5 @@
+import os
+
 from conftest import file_item, folder_item
 from upcloud import cli
 from upcloud.mirror import apply_plan, plan_mirror
@@ -102,3 +104,31 @@ def test_mirror_cli_apply_uploads_and_exits_5_on_failure(monkeypatch, rsps, tmp_
 def test_mirror_without_src_or_env_exits_2(capsys):
     assert cli.main(["mirror"]) == 2
     assert "SOURCE_FOLDER" in capsys.readouterr().err
+
+
+def test_plan_leaves_a_newer_onedrive_copy_alone(rsps, tmp_path):
+    (tmp_path / "doc.pdf").write_bytes(b"old local")
+    os.utime(tmp_path / "doc.pdf", (1_700_000_000, 1_700_000_000))  # 2023-11
+    newer = file_item("doc.pdf", 3)
+    newer["fileSystemInfo"] = {"lastModifiedDateTime": "2026-10-02T10:00:00Z"}
+    rsps.get(item("B"), json=folder_item("B"))
+    rsps.get(children("B"), json={"value": [newer]})
+    plan = {a.rel: (a.kind, a.reason) for a in plan_mirror(OneDriveClient("t"), tmp_path, "B")}
+    assert plan == {"doc.pdf": ("newer", "OneDrive copy is newer, left alone")}
+
+
+def test_plan_ignores_macos_junk_files(rsps, tmp_path):
+    (tmp_path / ".DS_Store").write_bytes(b"x")
+    (tmp_path / "._photo.jpg").write_bytes(b"x")
+    (tmp_path / "photo.jpg").write_bytes(b"jpg")
+    rsps.get(item("B"), status=404)
+    assert [a.rel for a in plan_mirror(OneDriveClient("t"), tmp_path, "B")] == ["photo.jpg"]
+
+
+def test_plan_uploads_when_onedrive_copy_is_older(rsps, tmp_path):
+    (tmp_path / "doc.pdf").write_bytes(b"new local")
+    older = file_item("doc.pdf", 3)
+    older["fileSystemInfo"] = {"lastModifiedDateTime": "2020-01-01T00:00:00.5Z"}
+    rsps.get(item("B"), json=folder_item("B"))
+    rsps.get(children("B"), json={"value": [older]})
+    assert [a.kind for a in plan_mirror(OneDriveClient("t"), tmp_path, "B")] == ["upload"]
