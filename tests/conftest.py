@@ -21,6 +21,9 @@ def isolated_env(tmp_path, monkeypatch):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("CLIENT_ID", "test-client")
     monkeypatch.setenv("CACHED_TOKEN_PATH", str(tmp_path / "token_cache.json"))
+    # Never touch the real roots file or move log.
+    monkeypatch.setenv("UPCLOUD_ROOTS", str(tmp_path / "no-roots.tsv"))
+    monkeypatch.setenv("UPCLOUD_MOVE_LOG", str(tmp_path / "moves.jsonl"))
     from upcloud import config
     config.Config.reload()
     yield

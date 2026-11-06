@@ -1,4 +1,5 @@
 import requests
+from urllib.parse import quote
 import os
 
 class OneDriveClient:
@@ -53,7 +54,7 @@ class OneDriveClient:
                 if verbose: print(f'Folder {onedrive_path} already exists')
     def get_item(self, path):
         """Return the driveItem at path, or None if it does not exist (404)."""
-        path = str(path or '').strip('/')
+        path = quote(str(path or '').strip('/'), safe='/')
         url = f'https://graph.microsoft.com/v1.0/me/drive/root:/{path}' if path else 'https://graph.microsoft.com/v1.0/me/drive/root'
         response = requests.get(url, headers=self._get_headers())
         if response.status_code == 404:
@@ -61,9 +62,17 @@ class OneDriveClient:
         response.raise_for_status()
         return response.json()
 
+    def move_item(self, item_id, parent_id, name=None):
+        """Move (and optionally rename) a driveItem; fails with 409 if the name is taken."""
+        body = {'parentReference': {'id': parent_id}}
+        if name:
+            body['name'] = name
+        url = f'https://graph.microsoft.com/v1.0/me/drive/items/{item_id}'
+        return self._make_request('PATCH', url, json=body).json()
+
     def list_children(self, path=None):
         """All children of a OneDrive folder, following @odata.nextLink pages."""
-        path = str(path or '').strip('/')
+        path = quote(str(path or '').strip('/'), safe='/')
         url = (f'https://graph.microsoft.com/v1.0/me/drive/root:/{path}:/children' if path
                else 'https://graph.microsoft.com/v1.0/me/drive/root/children') + '?$top=200'
         items = []

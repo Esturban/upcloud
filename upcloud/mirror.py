@@ -1,4 +1,4 @@
-"""Plan and apply a one-way local -> OneDrive mirror. Never deletes anything."""
+"""Plan and apply a one-way local -> OneDrive mirror. Never deletes anything or uploads secrets."""
 # REUSE_CHECKED: none in _dev repos (mirror hits are calendar/ISPC); rclone not installed; ticket targets upcloud
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 from .quickxor import quickxor_file
+from .safety import is_sensitive
 
 WORKERS = 8
 JUNK = {".ds_store", "thumbs.db", "desktop.ini"}
@@ -34,12 +35,13 @@ def scan_local(src, recursive=True):
     """{relative/posix/path: Path} for every local file under src."""
     src = Path(src)
     if src.is_file():
-        return {src.name: src}
+        return {} if is_sensitive(src.name) or src.is_symlink() else {src.name: src}
     if not src.is_dir():
         raise FileNotFoundError(f"local folder not found: {src}")
     found = src.rglob("*") if recursive else src.glob("*")
     return {p.relative_to(src).as_posix(): p for p in sorted(found)
-            if p.is_file() and p.name.lower() not in JUNK and not p.name.startswith("._")}
+            if p.is_file() and not p.is_symlink() and p.name.lower() not in JUNK and not p.name.startswith("._")
+            and not is_sensitive(p.relative_to(src).as_posix())}
 
 
 def remote_files(client, dst, recursive=True):
