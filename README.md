@@ -1,98 +1,80 @@
 # Upcloud
 
-Enterprise-grade OneDrive uploader optimized for large-scale file operations and parallel processing.
+Sign in, list and mirror a personal OneDrive from the terminal, through Microsoft Graph.
 
-## Core Features
-- Multi-threaded uploads (8 workers)
-- Chunked upload for files >4MB (320KB chunks)
-- Recursive directory mirroring
-- Resumable transfer support
-- Real-time progress tracking
+## Install
 
-## Requirements
+```sh
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt
+venv/bin/pip install -e .        # adds the `upcloud` command to venv/bin
+```
 
-- Python 3.6 or higher
-- `requests` library
-- `pyjwt` library
-- `adal` library
-- `onelogin` library
+`python -m upcloud` works too, with no install step.
 
-## Setup
+## Configure
 
-1. **Azure AD Application Setup**:
-    - Create an Azure AD application.
-    - Add the OneDrive API permissions to the application.
-    - Create a client secret for the application.
+Put these keys in a `.env` file at the repo root. Never commit it.
 
-2. **Environment Variables**:
-    - Create a `.env` file in the project root with the following variables:
-      ```env
-      CLIENT_ID=<your_azure_ad_application_id>
-      CLIENT_SECRET=<your_azure_ad_application_secret>
-      TENANT_ID=<your_azure_ad_tenant_id>
-      SOURCE_FOLDER=<local_source_folder_path>
-      TARGET_FOLDER=<onedrive_target_folder_path>
-      ```
+| Key | Meaning |
+|-----|---------|
+| `CLIENT_ID` | Azure app (client) id |
+| `AZURE_VALUE` | client secret, if the app has one |
+| `REDIRECT_URI` or `AZURE_REDIRECT_URI` | default `http://localhost:8080` |
+| `AUTHORITY_URL`, `TOKEN_URL` | default: the `consumers` endpoints (personal accounts) |
+| `SCOPES` | default `https://graph.microsoft.com/.default offline_access`; `offline_access` is always added |
+| `CACHED_TOKEN_PATH` | token cache file, relative to the `.env` folder; written with mode 600 |
+| `SOURCE_FOLDER`, `TARGET_FOLDER` | default local and OneDrive folders for `mirror` |
+| `RECURSIVE` | `true` (default for `mirror`) or `false` |
+
+`UPCLOUD_ENV_FILE` points at another `.env`.
 
 ## Usage
 
-1. **Install Dependencies**:
-    ```sh
-    pip install -r requirements.txt
-    ```
-
-2. **Run the Script**:
-    ```sh
-    python upload.py --source_folder <local_source_folder_path> --target_folder <onedrive_target_folder_path> --client_id <your_azure_ad_application_id> --client_secret <your_azure_ad_application_secret> --tenant_id <your_azure_ad_tenant_id>
-    ```
-
-## Example
-
 ```sh
-python  --source_folder ./local_folder --target_folder /OneDriveFolder --client_id your_client_id --client_secret your_client_secret --tenant_id your_tenant_id
+upcloud login                       # opens the Microsoft sign-in page once
+upcloud ls                          # list the OneDrive root
+upcloud ls datasets                 # list a folder
+upcloud mirror                      # plan SOURCE_FOLDER -> TARGET_FOLDER; changes nothing
+upcloud mirror ./data datasets/data # plan an explicit pair
+upcloud mirror ./data datasets/data --apply   # upload new and changed files
 ```
 
+### How `mirror` decides
 
-### Project Structure
+| Line | Meaning |
+|------|---------|
+| `upload` | missing on OneDrive, or a different size, or a different quickXorHash |
+| `skip` | same size, and same quickXorHash when OneDrive reports one (counted, not printed) |
+| `extra` | only on OneDrive; listed, never deleted |
+
+Without `--apply`, `mirror` only prints the plan. Missing OneDrive folders are created.
+Uploads run 8 at a time. A failed file does not stop the run; re-run the same command to
+retry, and unchanged files are skipped.
+
+The token refreshes itself 5 minutes before it expires. If it cannot, commands stop
+with exit code 3 and ask you to run `upcloud login`.
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | ok |
+| 1 | error |
+| 2 | usage (for example, mirror without SRC and DST) |
+| 3 | sign-in needed |
+| 4 | not found |
+| 5 | some uploads failed |
+
+## Legacy script
+
+`python -m upcloud.upcloud` still uploads `SOURCE_FOLDER` to `TARGET_FOLDER`, now every
+file by default (set `GLOB=*.csv` to narrow it). It skips files that already exist by name.
+
+## Tests
 
 ```sh
-.
-├── README.md
-├── local.env
-├── requirements.txt
-└── upcloud
-    ├── __init__.py
-    ├── config.py
-    ├── onedrive_client.py
-    ├── upcloud.py
-    └── utils.py
-
+venv/bin/python -m pytest -q
 ```
 
-### Key Functions  
-
-- File Existence Check:  
-
-	- `file_exists_on_onedrive(file_name, access_token, folder_name=None)` in `upcloud/utils.py`
-	- `file_exists(self, file_name, folder_name=None)` in `upcloud/onedrive_client.py`  
-
-- Folder Existence Check:  
-
-	- `folder_exists_on_onedrive(folder_name, access_token, parent_folder=None)` in `upcloud/utils.py`
-	- `folder_exists(self, folder_name, parent_folder=None)` in `upcloud/onedrive_client.py`
-
-- File Upload:  
-
-	- `upload_file(self, file_path, target_location=None, verbose=None)` in `upcloud/onedrive_client.py`
-	- `upload_file_in_chunks(self, file_path, upload_url)` in `upcloud/onedrive_client.py`
-
-- Folder Creation:  
-
-	- `create_folder(self, folder_name, parent_folder=None)` in `upcloud/onedrive_client.py`
-
-- Resumable Upload Session:
-
-	- `initiate_resumable_upload_session(self, file_path, target_location=None)` in `upcloud/onedrive_client.py`
-
-## Contributing
-Contributions are welcome! Please open an issue or submit a pull request for any improvements or bug fixes.
+All HTTP is mocked; tests never call Microsoft and never read `.env`.
